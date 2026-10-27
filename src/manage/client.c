@@ -346,6 +346,8 @@ void client_send_close(Client *c) {
 }
 void client_set_border_color(Client *c, const float color[4]) {
 	wlr_scene_rect_set_color(c->border, color);
+	if (c->outer_border)
+		wlr_scene_rect_set_color(c->outer_border, config.outer_bordercolor);
 }
 
 void client_set_state_colors(Client *c, const float border_color[4],
@@ -2038,7 +2040,7 @@ void handle_new_xdg_toplevel(struct wl_listener *listener, void *data) {
 	c->animation_type_open = ANIM_TYPE_UNSET;
 	c->animation_type_close = ANIM_TYPE_UNSET;
 	c->surface.xdg = toplevel->base;
-	c->bw = config.borderpx;
+	c->bw = config.borderpx + config.outer_borderpx;
 
 	LISTEN(&toplevel->base->surface->events.commit, &c->commit,
 		   handle_client_commit);
@@ -2318,11 +2320,11 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 		init_client_properties(c);
 
 	// set special window properties
-	if (client_is_unmanaged(c) || client_is_x11_popup(c)) {
+	if (client_is_unmanaged(c) || client_is_x11(c)) {
 		c->bw = 0;
 		c->no_border = 1;
 	} else {
-		c->bw = config.borderpx;
+		c->bw = config.borderpx + config.outer_borderpx;
 	}
 
 	if (client_should_global(c)) {
@@ -2385,6 +2387,14 @@ void handle_client_map(struct wl_listener *listener, void *data) {
 	wlr_scene_rect_set_corner_radii(c->border,
 									corner_radii_all(config.border_radius));
 	wlr_scene_node_set_enabled(&c->border->node, true);
+
+	c->outer_border =
+		wlr_scene_rect_create(c->scene, 0, 0, config.outer_bordercolor);
+	wlr_scene_node_lower_to_bottom(&c->outer_border->node);
+	wlr_scene_node_set_position(&c->outer_border->node, 0, 0);
+	wlr_scene_rect_set_corner_radii(c->outer_border,
+									corner_radii_all(config.border_radius));
+	wlr_scene_node_set_enabled(&c->outer_border->node, true);
 
 	c->shadow =
 		wlr_scene_shadow_create(c->scene, 0, 0, config.border_radius,
@@ -3449,7 +3459,7 @@ void client_apply_fullscreen(
 			resize(c, c->mon->m, (ResizeOpts){.interact = 1});
 
 	} else {
-		c->bw = c->no_border ? 0 : config.borderpx;
+		c->bw = c->no_border ? 0 : (config.borderpx + config.outer_borderpx);
 		if (c->isfloating)
 			client_set_floating(c, 1);
 	}
@@ -3520,7 +3530,7 @@ void client_set_maximize_screen(Client *c, int32_t maximizescreen,
 		if (!is_scroller_layout(c->mon) || c->isfloating)
 			resize(c, maximizescreen_box, (ResizeOpts){.interact = 0});
 	} else {
-		c->bw = c->no_border ? 0 : config.borderpx;
+		c->bw = c->no_border ? 0 : (config.borderpx + config.outer_borderpx);
 		if (c->isfloating)
 			client_set_floating(c, 1);
 	}

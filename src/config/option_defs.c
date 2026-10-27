@@ -2351,6 +2351,21 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		parse_config_file(config, value, false);
 	} else if (strncmp(key, "source", 6) == 0) {
 		parse_config_file(config, value, true);
+	} else if (strcmp(key, "outer_border_px") == 0 ||
+			   strcmp(key, "outer_borderpx") == 0) {
+		config->outer_borderpx = atoi(value);
+	} else if (strcmp(key, "outer_border_color") == 0 ||
+			   strcmp(key, "outer_bordercolor") == 0) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			mango_error(false, WLR_ERROR,
+						"Invalid outer_border_color "
+						"format: \033[1m\033[31m%s\033[0m\n",
+						value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->outer_bordercolor, color);
+		}
 	} else {
 		mango_error(false, WLR_ERROR,
 					"Unknown keyword: "
@@ -2481,6 +2496,7 @@ void set_value_default() {
 	config.idleinhibit_when_fullscreen = 0;
 
 	config.borderpx = 4;
+	config.outer_borderpx = 2;
 	config.group_bar_height = 33;
 	config.tab_bar_height = 33;
 	config.title_message_bar_height = 52;
@@ -2687,6 +2703,10 @@ void set_value_default() {
 	config.bordercolor[1] = 0x44 / 255.0f;
 	config.bordercolor[2] = 0x44 / 255.0f;
 	config.bordercolor[3] = 1.0f;
+	config.outer_bordercolor[0] = 0x1a / 255.0f;
+	config.outer_bordercolor[1] = 0x1b / 255.0f;
+	config.outer_bordercolor[2] = 0x26 / 255.0f;
+	config.outer_bordercolor[3] = 1.0f;
 	config.dropcolor[0] = 0xd5 / 255.0f;
 	config.dropcolor[1] = 0x89 / 255.0f;
 	config.dropcolor[2] = 0x9d / 255.0f;
@@ -2917,6 +2937,7 @@ void override_config(void) {
 	config.special_gappoh = CLAMP_INT(config.special_gappoh, 0, 1000);
 	config.special_gappov = CLAMP_INT(config.special_gappov, 0, 1000);
 	config.borderpx = CLAMP_INT(config.borderpx, 0, 200);
+	config.outer_borderpx = CLAMP_INT(config.outer_borderpx, 0, 200);
 	config.group_bar_height = CLAMP_INT(config.group_bar_height, 0, 500);
 	config.tab_bar_height = CLAMP_INT(config.tab_bar_height, 0, 500);
 	config.title_message_bar_height =

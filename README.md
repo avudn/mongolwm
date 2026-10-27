@@ -1,3 +1,12 @@
+# mongolwm
+mongolwm is a little fork of mangowm which adds outer borders (double borders basically). <br>
+to add a second border, you should add this to your ~/.config/mango/config.conf:
+```
+outer_border_px=2
+outer_border_color=0x42050fff
+```
+and thats it. lol
+
 <div align="center">
   <img src="assets/mango.svg" alt="Mango Logo" width="120"/>
 

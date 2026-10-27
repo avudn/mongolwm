@@ -118,7 +118,11 @@ void reapply_property(void) {
 	wl_list_for_each(c, &server.clients, link) {
 		if (c && !c->iskilling) {
 			if (!c->no_border && !c->isfullscreen) {
-				c->bw = config.borderpx;
+				c->bw = config.borderpx + config.outer_borderpx;
+			}
+			if (c->outer_border) {
+				wlr_scene_rect_set_color(c->outer_border,
+										 config.outer_bordercolor);
 			}
 			client_set_group_config(c);
 			client_apply_tab_bar_config(c);

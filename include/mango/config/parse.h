@@ -486,6 +486,7 @@ typedef struct {
 	uint32_t special_gappoh;
 	uint32_t special_gappov;
 	uint32_t borderpx;
+	uint32_t outer_borderpx;
 	uint32_t group_bar_height;
 	uint32_t tab_bar_height;
 	uint32_t title_message_bar_height;
@@ -500,6 +501,7 @@ typedef struct {
 	float special_dim;
 	float rootcolor[4];
 	float bordercolor[4];
+	float outer_bordercolor[4];
 	float dropcolor[4];
 	float splitcolor[4];
 	float focuscolor[4];

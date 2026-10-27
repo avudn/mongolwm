@@ -695,6 +695,7 @@ void client_draw_split_border(Client *c, bool hit_no_border,
 	wlr_scene_node_set_position(&c->splitindicator[1]->node, border_right_x,
 								border_right_y);
 }
+
 void client_draw_border(Client *c, struct ivec2 offsets) {
 	if (!c || c->iskilling || !client_surface(c)->mapped)
 		return;
@@ -704,12 +705,16 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 			wlr_scene_node_set_enabled(&c->splitindicator[0]->node, false);
 			wlr_scene_node_set_enabled(&c->splitindicator[1]->node, false);
 			wlr_scene_node_set_enabled(&c->border->node, false);
+			if (c->outer_border)
+				wlr_scene_node_set_enabled(&c->outer_border->node, false);
 			wlr_scene_node_set_position(&c->scene_surface->node, 0, 0);
 		}
 		return;
 	} else {
 		if (!c->border->node.enabled)
 			wlr_scene_node_set_enabled(&c->border->node, true);
+		if (c->outer_border && !c->outer_border->node.enabled)
+			wlr_scene_node_set_enabled(&c->outer_border->node, true);
 	}
 
 	bool hit_no_border = check_hit_no_border(c);
@@ -723,28 +728,84 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 
 	struct wlr_box cur = c->animation.current;
 	int32_t bw = (int32_t)c->bw;
+	int32_t obw = (bw > 0 && c->outer_border) ? (int32_t)config.outer_borderpx : 0;
+	if (obw > bw)
+		obw = bw;
+	int32_t ibw = bw - obw;
+
 	int32_t left = offsets.x, right = offsets.width, top = offsets.y,
 			bottom = offsets.height;
 
-	int32_t inner_surface_width = GEZERO(cur.width - 2 * bw);
-	int32_t inner_surface_height = GEZERO(cur.height - 2 * bw);
-	int32_t inner_surface_x = GEZERO(bw - left);
-	int32_t inner_surface_y = GEZERO(bw - top);
+	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
 
-	int32_t rect_x = left;
-	int32_t rect_y = top;
-	int32_t rect_width = GEZERO(cur.width - left - right);
-	int32_t rect_height = GEZERO(cur.height - top - bottom);
+	/* 1. Draw 2bwm Outer Border (from 0..cur.width, clipping out obw..cur.width-obw) */
+	if (c->outer_border) {
+		if (obw > 0) {
+			wlr_scene_node_set_enabled(&c->outer_border->node, true);
 
-	if (left > c->bw)
-		inner_surface_width = inner_surface_width - left + bw;
-	if (top > c->bw)
-		inner_surface_height = inner_surface_height - top + bw;
-	if (right > 0)
-		inner_surface_width = MANGO_MIN(cur.width, inner_surface_width + right);
-	if (bottom > 0)
+			int32_t outer_hole_w = GEZERO(cur.width - 2 * obw);
+			int32_t outer_hole_h = GEZERO(cur.height - 2 * obw);
+			int32_t outer_hole_x = GEZERO(obw - left);
+			int32_t outer_hole_y = GEZERO(obw - top);
+
+			int32_t o_rect_x = left;
+			int32_t o_rect_y = top;
+			int32_t o_rect_w = GEZERO(cur.width - left - right);
+			int32_t o_rect_h = GEZERO(cur.height - top - bottom);
+
+			if (left > obw)
+				outer_hole_w = GEZERO(outer_hole_w - left + obw);
+			if (top > obw)
+				outer_hole_h = GEZERO(outer_hole_h - top + obw);
+			if (right > 0)
+				outer_hole_w = MANGO_MIN(cur.width, outer_hole_w + right);
+			if (bottom > 0)
+				outer_hole_h = MANGO_MIN(cur.height, outer_hole_h + bottom);
+
+			struct clipped_region outer_clip = {
+				.area = {outer_hole_x, outer_hole_y, outer_hole_w, outer_hole_h},
+				.corners = current_corner_location,
+			};
+
+			wlr_scene_rect_set_size(c->outer_border, o_rect_w, o_rect_h);
+			wlr_scene_node_set_position(&c->outer_border->node, o_rect_x, o_rect_y);
+			wlr_scene_rect_set_corner_radii(c->outer_border, current_corner_location);
+			wlr_scene_rect_set_clipped_region(c->outer_border, outer_clip);
+		} else {
+			wlr_scene_rect_set_size(c->outer_border, 0, 0);
+			wlr_scene_node_set_enabled(&c->outer_border->node, false);
+		}
+	}
+
+	/* 2. Draw Inner Border (inset by obw, clipping out the client surface at bw) */
+	int32_t in_left = GEZERO(left - obw);
+	int32_t in_top = GEZERO(top - obw);
+	int32_t in_right = GEZERO(right - obw);
+	int32_t in_bottom = GEZERO(bottom - obw);
+
+	int32_t in_total_w = GEZERO(cur.width - 2 * obw);
+	int32_t in_total_h = GEZERO(cur.height - 2 * obw);
+
+	int32_t inner_surface_width = GEZERO(in_total_w - 2 * ibw);
+	int32_t inner_surface_height = GEZERO(in_total_h - 2 * ibw);
+	int32_t inner_surface_x = GEZERO(ibw - in_left);
+	int32_t inner_surface_y = GEZERO(ibw - in_top);
+
+	int32_t rect_x = obw + in_left;
+	int32_t rect_y = obw + in_top;
+	int32_t rect_width = GEZERO(in_total_w - in_left - in_right);
+	int32_t rect_height = GEZERO(in_total_h - in_top - in_bottom);
+
+	if (in_left > ibw)
+		inner_surface_width = GEZERO(inner_surface_width - in_left + ibw);
+	if (in_top > ibw)
+		inner_surface_height = GEZERO(inner_surface_height - in_top + ibw);
+	if (in_right > 0)
+		inner_surface_width =
+			MANGO_MIN(in_total_w, inner_surface_width + in_right);
+	if (in_bottom > 0)
 		inner_surface_height =
-			MANGO_MIN(cur.height, inner_surface_height + bottom);
+			MANGO_MIN(in_total_h, inner_surface_height + in_bottom);
 
 	struct clipped_region clipped_region = {
 		.area = {inner_surface_x, inner_surface_y, inner_surface_width,
@@ -752,7 +813,6 @@ void client_draw_border(Client *c, struct ivec2 offsets) {
 		.corners = current_corner_location,
 	};
 
-	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
 	wlr_scene_rect_set_size(c->border, rect_width, rect_height);
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
 	wlr_scene_rect_set_corner_radii(c->border, current_corner_location);
@@ -1582,7 +1642,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 	if (c->no_border || c->iskilling)
 		c->bw = 0;
 	else if (!c->isfullscreen)
-		c->bw = config.borderpx;
+		c->bw = config.borderpx + config.outer_borderpx;
 
 	bool hit_no_border = check_hit_no_border(c);
 	if (hit_no_border) {
@@ -1731,6 +1791,8 @@ bool client_step_focus_animation(Client *c, double linear_progress) {
 
 void client_set_unfocused_opacity_animation(Client *c) {
 	wlr_scene_node_raise_to_top(&c->border->node);
+	if (c->outer_border)
+		wlr_scene_node_raise_to_top(&c->outer_border->node);
 	if (!config.animations) {
 		client_update_border_color(c);
 		return;
@@ -1740,6 +1802,8 @@ void client_set_unfocused_opacity_animation(Client *c) {
 }
 void client_set_focused_opacity_animation(Client *c) {
 	wlr_scene_node_lower_to_bottom(&c->border->node);
+	if (c->outer_border)
+		wlr_scene_node_lower_to_bottom(&c->outer_border->node);
 
 	if (!config.animations) {
 		client_update_border_color(c);
