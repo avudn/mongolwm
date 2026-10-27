@@ -140,6 +140,8 @@ struct Client {
 	struct wlr_scene_tree *ov_card_tree; /* Overview card tree (root surface
 											plus all subsurface nodes). */
 	struct wl_list ov_card_surfaces;	 /* struct ov_card_surface list */
+	struct wlr_fbox ov_world_geom;		 /* Infinite overview canvas box */
+	bool ov_world_initialized;
 
 	struct wlr_xdg_toplevel_decoration_v1 *decoration;
 	struct wl_listener foreign_activate_request;
@@ -523,5 +525,19 @@ void handle_xwayland_surface_set_geometry(struct wl_listener *listener,
 										  void *data);
 
 #endif
+
+void overview_canvas_reset(Monitor *m);
+bool overview_canvas_has_custom_state(Monitor *m);
+void overview_canvas_capture_initial(Monitor *m);
+void overview_canvas_sync_clients(Monitor *m);
+void overview_canvas_apply(Monitor *m, bool animate);
+void overview_canvas_zoom_at(Monitor *m, double lx, double ly, double delta);
+Client *overview_client_at(Monitor *m, double lx, double ly);
+bool overview_canvas_button_press(Monitor *m, uint32_t button, double lx,
+								  double ly);
+bool overview_canvas_button_release(Monitor *m, uint32_t button, double lx,
+									double ly);
+bool overview_canvas_motion(Monitor *m, double lx, double ly);
+bool overview_canvas_is_dragging(void);
 
 #endif

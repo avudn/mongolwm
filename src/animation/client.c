@@ -1585,8 +1585,9 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 							   : &c->mon->w;
 	struct wlr_box clip;
 
-	if (is_scroller_layout(c->mon) &&
-		(!c->isfloating || c == server.grab_client)) {
+	if ((c->mon && c->mon->isoverview) ||
+		(is_scroller_layout(c->mon) &&
+		 (!c->isfloating || c == server.grab_client))) {
 		c->geom = geo;
 		c->geom.width = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
 		c->geom.height = MANGO_MAX(1 + 2 * (int32_t)c->bw, c->geom.height);

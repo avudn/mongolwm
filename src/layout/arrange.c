@@ -1500,7 +1500,13 @@ void arrange(Monitor *m, bool want_animation, bool from_view) {
 	}
 
 	if (m->isoverview) {
-		overviewlayout.arrange(m);
+		if (!overview_canvas_has_custom_state(m)) {
+			overviewlayout.arrange(m);
+			overview_canvas_capture_initial(m);
+		} else {
+			overview_canvas_sync_clients(m);
+			overview_canvas_apply(m, want_animation);
+		}
 	} else {
 		m->pertag->ltidxs[get_mon_curtag(m)]->arrange(m);
 	}
