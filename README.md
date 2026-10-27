@@ -3,7 +3,7 @@ mongolwm is a little fork of mangowm which adds outer borders (double borders ba
 to add a second border, you should add this to your ~/.config/mango/config.conf:
 ```
 outer_border_px=2
-outer_border_color=0x42050fff
+outer_border_color=0xffffffff
 ```
 and thats it. lol
 
