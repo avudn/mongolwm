@@ -34,22 +34,6 @@ Dual-kawase blur, drop shadows, window dimming, opacity fading, and custom cubic
 
 ## Building
 
-The build process is the same as MangoWM's. It uses Meson and Ninja.
-
-You'll need the usual Wayland compositor toolchain, including `wlroots` and `scenefx`, plus `meson` and `ninja`. Package names vary by distro.
-
-```sh
-git clone https://github.com/avudn/mongolwm.git
-cd mongolwm
-meson setup build
-ninja -C build
-sudo ninja -C build install
-```
-
-If you'd rather not install system-wide, run the binary straight from `build/` instead of the last step.
-
-## Building
-
 The build process is the same as MangoWM's. You need the dependencies below, plus `wlroots` and `scenefx` built from source (unless your distro packages the right versions).
 
 ### Dependencies
