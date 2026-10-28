@@ -39,7 +39,7 @@ The build process is the same as MangoWM's. It uses Meson and Ninja.
 You'll need the usual Wayland compositor toolchain, including `wlroots` and `scenefx`, plus `meson` and `ninja`. Package names vary by distro.
 
 ```sh
-git clone https://github.com/<your-username>/mongolwm.git
+git clone https://github.com/avudn/mongolwm.git
 cd mongolwm
 meson setup build
 ninja -C build
