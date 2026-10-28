@@ -32,6 +32,77 @@ Dual-kawase blur, drop shadows, window dimming, opacity fading, and custom cubic
 
 `canvas`, `tile`, `scroller`, `dwindle`, `monocle`, `grid`, `deck`, `center_tile`, `right_tile`, `fair`, and the vertical variants: `vertical_scroller`, `vertical_tile`, `vertical_grid`, `vertical_deck`, `vertical_fair`.
 
+## Building
+
+The build process is the same as MangoWM's. It uses Meson and Ninja.
+
+You'll need the usual Wayland compositor toolchain, including `wlroots` and `scenefx`, plus `meson` and `ninja`. Package names vary by distro.
+
+```sh
+git clone https://github.com/avudn/mongolwm
+cd mongolwm
+meson setup build
+ninja -C build
+sudo ninja -C build install
+```
+
+If you'd rather not install system-wide, run the binary straight from `build/` instead of the last step.
+
+## Building
+
+The build process is the same as MangoWM's. You need the dependencies below, plus `wlroots` and `scenefx` built from source (unless your distro packages the right versions).
+
+### Dependencies
+
+- glibc
+- wayland
+- wayland-protocols
+- libinput
+- libdrm
+- libxkbcommon
+- pixman
+- git
+- meson
+- ninja
+- libdisplay-info
+- libliftoff
+- hwdata
+- seatd
+- pcre2
+- xorg-xwayland
+- libxcb
+
+### 1. Build wlroots
+
+```bash
+git clone -b 0.19.2 https://gitlab.freedesktop.org/wlroots/wlroots.git
+cd wlroots
+meson build -Dprefix=/usr
+sudo ninja -C build install
+```
+
+### 2. Build scenefx
+
+This is the library that provides blur, shadows and rounded corners.
+
+```bash
+git clone -b 0.4.1 https://github.com/wlrfx/scenefx.git
+cd scenefx
+meson build -Dprefix=/usr
+sudo ninja -C build install
+```
+
+### 3. Build mongolwm
+
+```bash
+git clone <repo-url> mongolwm
+cd mongolwm
+meson build -Dprefix=/usr
+sudo ninja -C build install
+```
+
+The wlroots and scenefx versions above are the ones MangoWM currently asks for. If they change upstream, mongolwm will most likely need the same bump.
+
 ## Controls
 
 ### Canvas mode
