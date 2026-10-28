@@ -39,7 +39,7 @@ The build process is the same as MangoWM's. It uses Meson and Ninja.
 You'll need the usual Wayland compositor toolchain, including `wlroots` and `scenefx`, plus `meson` and `ninja`. Package names vary by distro.
 
 ```sh
-git clone https://github.com/avudn/mongolwm
+git clone https://github.com/<your-username>/mongolwm.git
 cd mongolwm
 meson setup build
 ninja -C build
@@ -54,23 +54,23 @@ The build process is the same as MangoWM's. You need the dependencies below, plu
 
 ### Dependencies
 
-- glibc
 - wayland
 - wayland-protocols
 - libinput
 - libdrm
 - libxkbcommon
 - pixman
-- git
-- meson
-- ninja
 - libdisplay-info
 - libliftoff
 - hwdata
 - seatd
 - pcre2
+- pango
+- cjson
 - xorg-xwayland
 - libxcb
+
+You'll also need `git`, `meson` and `ninja` to fetch and build everything.
 
 ### 1. Build wlroots
 
@@ -95,7 +95,7 @@ sudo ninja -C build install
 ### 3. Build mongolwm
 
 ```bash
-git clone <repo-url> mongolwm
+git clone https://github.com/avudn/mongolwm.git
 cd mongolwm
 meson build -Dprefix=/usr
 sudo ninja -C build install
