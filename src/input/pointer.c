@@ -422,8 +422,10 @@ handle_cursor_axis(struct wl_listener *listener, void *data) {
 
 	mods = keyboard_hard_modifiers();
 
-	if (server.selected_monitor && server.selected_monitor->isoverview &&
-		CLEANMASK(mods) == 0 &&
+	if (server.selected_monitor &&
+		((server.selected_monitor->isoverview && CLEANMASK(mods) == 0) ||
+		 (is_canvas_layout(server.selected_monitor) &&
+		  CLEANMASK(mods) == WLR_MODIFIER_LOGO)) &&
 		event->orientation == WL_POINTER_AXIS_VERTICAL_SCROLL) {
 		overview_canvas_zoom_at(server.selected_monitor, server.cursor->x,
 								server.cursor->y, event->delta);
@@ -1011,6 +1013,10 @@ bool pointer_begin_move_resize(Client *gc, uint32_t mode, double x, double y,
 	if (server.cursor_mode != CurNormal && server.cursor_mode != CurPressed)
 		return false;
 
+	if (gc && gc->mon && is_canvas_layout(gc->mon) && !gc->mon->isoverview) {
+		return overview_canvas_begin_move_resize(gc, mode, x, y);
+	}
+
 	if (!gc || (mode != CurMove && mode != CurResize) ||
 		client_is_unmanaged(gc) || gc->isfullscreen || gc->ismaximizescreen) {
 		server.grab_client = NULL;
@@ -1269,8 +1275,6 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 		pointer_cursor_activity();
 		wlr_idle_notifier_v1_notify_activity(server.idle_notifier, server.seat);
 
-		/* Update selected_monitor (even while dragging a window) */
-		/* Update selected_monitor (even while dragging a window) */
 		if (config.sloppyfocus) {
 			Monitor *oldmon = server.selected_monitor;
 			set_selected_monitor(
@@ -1279,7 +1283,9 @@ void pointer_process_motion(uint32_t time, struct wlr_input_device *device,
 				printstatus(IPC_WATCH_MONITOR | IPC_WATCH_ALL_MONITORS);
 		}
 
-		if (server.selected_monitor && server.selected_monitor->isoverview) {
+		if (server.selected_monitor &&
+			(server.selected_monitor->isoverview ||
+			 is_canvas_layout(server.selected_monitor))) {
 			if (overview_canvas_motion(server.selected_monitor,
 									   server.cursor->x, server.cursor->y)) {
 				return;
@@ -1798,8 +1804,10 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 			}
 		}
 
-		// Interactive overview canvas: move, resize, pan, jump, or close
-		if (server.selected_monitor && server.selected_monitor->isoverview) {
+		if (server.selected_monitor &&
+			(server.selected_monitor->isoverview ||
+			 (is_canvas_layout(server.selected_monitor) &&
+			  event->button == BTN_MIDDLE))) {
 			if (overview_canvas_button_press(server.selected_monitor,
 											 event->button, server.cursor->x,
 											 server.cursor->y)) {
@@ -1879,6 +1887,8 @@ bool pointer_process_button_press(struct wlr_pointer_button_event *event) {
 			server.cursor_mode = CurNormal;
 			return true;
 		}
+
+
 		server.group_bar_drag_pending = false;
 		server.drop_to_group = false;
 		server.group_bar_drag_client = NULL;

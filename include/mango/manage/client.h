@@ -526,6 +526,9 @@ void handle_xwayland_surface_set_geometry(struct wl_listener *listener,
 
 #endif
 
+bool is_canvas_layout(Monitor *m);
+void canvas_layout(Monitor *m);
+bool canvas_predict(Monitor *m, Client *c, struct wlr_box *out_geo);
 void overview_canvas_reset(Monitor *m);
 bool overview_canvas_has_custom_state(Monitor *m);
 void overview_canvas_capture_initial(Monitor *m);
@@ -533,11 +536,15 @@ void overview_canvas_sync_clients(Monitor *m);
 void overview_canvas_apply(Monitor *m, bool animate);
 void overview_canvas_zoom_at(Monitor *m, double lx, double ly, double delta);
 Client *overview_client_at(Monitor *m, double lx, double ly);
+bool overview_canvas_begin_move_resize(Client *c, uint32_t mode, double lx,
+									   double ly);
 bool overview_canvas_button_press(Monitor *m, uint32_t button, double lx,
 								  double ly);
 bool overview_canvas_button_release(Monitor *m, uint32_t button, double lx,
 									double ly);
 bool overview_canvas_motion(Monitor *m, double lx, double ly);
 bool overview_canvas_is_dragging(void);
+void canvas_focus_client(Monitor *m, Client *c, bool center_camera);
+bool canvas_focus_dir(Monitor *m, int32_t dir);
 
 #endif

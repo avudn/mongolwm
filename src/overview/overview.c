@@ -5,10 +5,13 @@
 #include "mango/common/util.h"
 #include "mango/dispatch/bind.h"
 #include "mango/draw/text-node.h"
+#include "mango/input/pointer.h"
+#include "mango/layout/arrange.h"
 #include "mango/layout/layout.h"
 #include "mango/manage/client.h"
 #include "mango/manage/monitor.h"
 #include "mango/manage/tab.h"
+#include <float.h>
 #include <math.h>
 #include <scenefx/types/wlr_scene.h>
 #include <wlr/types/wlr_compositor.h>
@@ -38,6 +41,7 @@ enum {
 	OV_DRAG_MOVE_CLIENT,
 	OV_DRAG_RESIZE_CLIENT,
 	OV_DRAG_PAN_CANVAS,
+	OV_DRAG_CLICK_ONLY,
 };
 
 struct ov_canvas_state {
@@ -45,6 +49,16 @@ struct ov_canvas_state {
 	float cam_x;
 	float cam_y;
 	float cam_zoom;
+	float target_cam_x;
+	float target_cam_y;
+	float target_cam_zoom;
+	float anchor_wx;
+	float anchor_wy;
+	float anchor_rx;
+	float anchor_ry;
+	bool zoom_use_anchor;
+	bool camera_animating;
+	struct wl_event_source *zoom_timer;
 	bool custom_state;
 	struct wl_list link;
 };
@@ -58,8 +72,75 @@ static struct {
 	Client *client;
 	double start_x, start_y;
 	double last_x, last_y;
+	uint32_t last_configure_ms;
 	bool moved;
 } ov_drag = {0};
+
+bool is_canvas_layout(Monitor *m) {
+	if (!m || !m->pertag)
+		return false;
+	uint32_t tag = get_mon_curtag(m);
+	const Layout *lt = m->pertag->ltidxs[tag];
+	return lt && lt->name && strcmp(lt->name, "canvas") == 0;
+}
+
+static bool is_canvas_or_overview(Monitor *m) {
+	return m && (m->isoverview || is_canvas_layout(m));
+}
+
+static void overview_canvas_configure_client_size(Client *c) {
+	if (!c || !c->mon || c->mon->isoverview || !is_canvas_layout(c->mon) ||
+		!c->ov_world_initialized || c->iskilling)
+		return;
+
+	int32_t min_size = 2 * (int32_t)c->bw + 24;
+	int32_t ww = MANGO_MAX(min_size, (int32_t)roundf(c->ov_world_geom.width));
+	int32_t wh = MANGO_MAX(min_size, (int32_t)roundf(c->ov_world_geom.height));
+	uint32_t cw = (uint32_t)MANGO_MAX(1, ww - 2 * (int32_t)c->bw);
+	uint32_t ch = (uint32_t)MANGO_MAX(1, wh - 2 * (int32_t)c->bw);
+	client_set_size(c, cw, ch, false);
+}
+
+static int ov_zoom_timer_cb(void *data) {
+	struct ov_canvas_state *st = data;
+	Monitor *m = st->mon;
+	if (!m || !is_canvas_or_overview(m)) {
+		st->cam_zoom = st->target_cam_zoom;
+		st->cam_x = st->target_cam_x;
+		st->cam_y = st->target_cam_y;
+		st->camera_animating = false;
+		return 0;
+	}
+
+	float dz = st->target_cam_zoom - st->cam_zoom;
+	float dx = st->target_cam_x - st->cam_x;
+	float dy = st->target_cam_y - st->cam_y;
+
+	if (fabsf(dz) < 0.001f && fabsf(dx) < 0.35f && fabsf(dy) < 0.35f) {
+		st->cam_zoom = st->target_cam_zoom;
+		st->cam_x = st->target_cam_x;
+		st->cam_y = st->target_cam_y;
+		st->camera_animating = false;
+		overview_canvas_apply(m, false);
+		return 0;
+	}
+
+	st->camera_animating = true;
+	const float smooth = 0.22f;
+	st->cam_zoom += dz * smooth;
+	if (st->zoom_use_anchor) {
+		st->cam_x = st->anchor_wx - st->anchor_rx / st->cam_zoom;
+		st->cam_y = st->anchor_wy - st->anchor_ry / st->cam_zoom;
+	} else {
+		st->cam_x += dx * smooth;
+		st->cam_y += dy * smooth;
+	}
+
+	overview_canvas_apply(m, false);
+	if (st->zoom_timer)
+		wl_event_source_timer_update(st->zoom_timer, 8);
+	return 0;
+}
 
 static struct ov_canvas_state *ov_canvas_get(Monitor *m) {
 	struct ov_canvas_state *st;
@@ -72,18 +153,42 @@ static struct ov_canvas_state *ov_canvas_get(Monitor *m) {
 	st->cam_x = 0.0f;
 	st->cam_y = 0.0f;
 	st->cam_zoom = 1.0f;
+	st->target_cam_x = 0.0f;
+	st->target_cam_y = 0.0f;
+	st->target_cam_zoom = 1.0f;
+	st->zoom_use_anchor = false;
+	st->camera_animating = false;
 	st->custom_state = false;
+	if (server.event_loop)
+		st->zoom_timer =
+			wl_event_loop_add_timer(server.event_loop, ov_zoom_timer_cb, st);
 	wl_list_insert(&ov_canvas_states, &st->link);
 	return st;
+}
+
+static void ov_canvas_stop_zoom_timer(struct ov_canvas_state *st) {
+	if (!st)
+		return;
+	if (st->zoom_timer)
+		wl_event_source_timer_update(st->zoom_timer, 0);
+	st->target_cam_x = st->cam_x;
+	st->target_cam_y = st->cam_y;
+	st->target_cam_zoom = st->cam_zoom;
+	st->zoom_use_anchor = false;
+	st->camera_animating = false;
 }
 
 void overview_canvas_reset(Monitor *m) {
 	if (!m)
 		return;
 	struct ov_canvas_state *st = ov_canvas_get(m);
+	ov_canvas_stop_zoom_timer(st);
 	st->cam_x = 0.0f;
 	st->cam_y = 0.0f;
 	st->cam_zoom = 1.0f;
+	st->target_cam_x = 0.0f;
+	st->target_cam_y = 0.0f;
+	st->target_cam_zoom = 1.0f;
 	st->custom_state = false;
 	if (ov_drag.mon == m) {
 		ov_drag.mode = OV_DRAG_NONE;
@@ -115,23 +220,196 @@ void overview_canvas_capture_initial(Monitor *m) {
 	}
 }
 
+/* Smoothly glides the camera in Canvas layout so Client `c` is centered on
+ * Monitor `m` (like the Hyprland infinite canvas showcase). */
+static void canvas_pan_camera_to_client(Monitor *m, Client *c) {
+	if (!m || !c || !c->ov_world_initialized)
+		return;
+
+	struct ov_canvas_state *st = ov_canvas_get(m);
+	float zoom = st->target_cam_zoom > 0.05f
+					 ? st->target_cam_zoom
+					 : (st->cam_zoom > 0.05f ? st->cam_zoom : 1.0f);
+
+	float target_x = (c->ov_world_geom.x - (float)m->m.x) +
+					 c->ov_world_geom.width * 0.5f -
+					 ((float)m->m.width * 0.5f) / zoom;
+	float target_y = (c->ov_world_geom.y - (float)m->m.y) +
+					 c->ov_world_geom.height * 0.5f -
+					 ((float)m->m.height * 0.5f) / zoom;
+
+	st->custom_state = true;
+	st->zoom_use_anchor = false;
+	st->target_cam_zoom = zoom;
+	st->target_cam_x = target_x;
+	st->target_cam_y = target_y;
+
+	if (!st->zoom_timer && server.event_loop)
+		st->zoom_timer =
+			wl_event_loop_add_timer(server.event_loop, ov_zoom_timer_cb, st);
+
+	if (st->zoom_timer) {
+		ov_zoom_timer_cb(st);
+	} else {
+		st->cam_x = target_x;
+		st->cam_y = target_y;
+		overview_canvas_apply(m, true);
+	}
+}
+
+void canvas_focus_client(Monitor *m, Client *c, bool center_camera) {
+	if (!m || !c)
+		return;
+
+	Client *prev_sel = m->sel;
+	wlr_scene_node_raise_to_top(&c->scene->node);
+	client_focus(c, 1);
+
+	if (prev_sel && prev_sel != c && !prev_sel->iskilling)
+		client_update_border_color(prev_sel);
+	client_update_border_color(c);
+
+	if (center_camera) {
+		canvas_pan_camera_to_client(m, c);
+		if (config.warpcursor) {
+			wlr_cursor_warp_closest(server.cursor, NULL,
+									m->m.x + m->m.width / 2.0,
+									m->m.y + m->m.height / 2.0);
+		}
+	}
+}
+
+bool canvas_focus_dir(Monitor *m, int32_t dir) {
+	if (!m || !is_canvas_layout(m))
+		return false;
+
+	overview_canvas_sync_clients(m);
+
+	Client *tc = m->sel;
+	if (!tc || tc->mon != m || tc->iskilling || tc->isminimized ||
+		tc->isunglobal || !VISIBLEON(tc, m)) {
+		Client *first = NULL;
+		wl_list_for_each(first, &server.focus_stack, flink) {
+			if (first->mon == m && !first->iskilling && !first->isminimized &&
+				!first->isunglobal && VISIBLEON(first, m)) {
+				canvas_focus_client(m, first, true);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	float tc_cx = tc->ov_world_geom.x + tc->ov_world_geom.width * 0.5f;
+	float tc_cy = tc->ov_world_geom.y + tc->ov_world_geom.height * 0.5f;
+
+	Client *best = NULL;
+	float best_score = FLT_MAX;
+
+	Client *c;
+	wl_list_for_each(c, &server.clients, link) {
+		if (!c || c == tc || c->mon != m || c->iskilling || c->isminimized ||
+			c->isunglobal || !VISIBLEON(c, m) || !c->ov_world_initialized)
+			continue;
+
+		float c_cx = c->ov_world_geom.x + c->ov_world_geom.width * 0.5f;
+		float c_cy = c->ov_world_geom.y + c->ov_world_geom.height * 0.5f;
+
+		float dx = c_cx - tc_cx;
+		float dy = c_cy - tc_cy;
+		float primary = 0.0f;
+		float secondary = 0.0f;
+
+		switch (dir) {
+		case LEFT:
+			if (dx >= -1.0f)
+				continue;
+			primary = -dx;
+			secondary = fabsf(dy);
+			break;
+		case RIGHT:
+			if (dx <= 1.0f)
+				continue;
+			primary = dx;
+			secondary = fabsf(dy);
+			break;
+		case UP:
+			if (dy >= -1.0f)
+				continue;
+			primary = -dy;
+			secondary = fabsf(dx);
+			break;
+		case DOWN:
+			if (dy <= 1.0f)
+				continue;
+			primary = dy;
+			secondary = fabsf(dx);
+			break;
+		default:
+			continue;
+		}
+
+		float cone_penalty = (secondary > primary * 1.5f) ? 100000.0f : 0.0f;
+		float score = cone_penalty + primary + secondary * 1.8f;
+
+		if (score < best_score) {
+			best_score = score;
+			best = c;
+		}
+	}
+
+	if (best) {
+		canvas_focus_client(m, best, true);
+		return true;
+	}
+	return false;
+}
+
 void overview_canvas_sync_clients(Monitor *m) {
 	if (!m)
 		return;
 	struct ov_canvas_state *st = ov_canvas_get(m);
+	float zoom = st->cam_zoom > 0.05f ? st->cam_zoom : 1.0f;
 	Client *c;
 	wl_list_for_each(c, &server.clients, link) {
-		if (!c || c->mon != m || !c->ov_card_tree || c->iskilling)
+		if (!c || c->mon != m || c->iskilling || c->isminimized ||
+			c->isunglobal || !VISIBLEON(c, m))
 			continue;
+		if (!c->ov_card_tree)
+			overview_backup_surface(c);
 		if (!c->ov_world_initialized) {
-			float w = c->geom.width > 0 ? (float)c->geom.width : 480.0f;
-			float h = c->geom.height > 0 ? (float)c->geom.height : 320.0f;
+			float w = c->geom.width > 100 ? (float)c->geom.width
+										  : (float)m->w.width * 0.55f;
+			float h = c->geom.height > 100 ? (float)c->geom.height
+										   : (float)m->w.height * 0.6f;
 			float center_wx =
 				(float)m->m.x + st->cam_x +
-				((float)m->m.width / st->cam_zoom - w) * 0.5f;
+				((float)m->m.width / zoom - w) * 0.5f;
 			float center_wy =
 				(float)m->m.y + st->cam_y +
-				((float)m->m.height / st->cam_zoom - h) * 0.5f;
+				((float)m->m.height / zoom - h) * 0.5f;
+
+			/* Place new windows to the right/below existing windows on the
+			 * canvas so directional focus immediately has a spatial layout */
+			for (int attempt = 0; attempt < 12; attempt++) {
+				bool collision = false;
+				Client *other;
+				wl_list_for_each(other, &server.clients, link) {
+					if (other == c || other->mon != m ||
+						!other->ov_world_initialized || other->iskilling ||
+						!VISIBLEON(other, m))
+						continue;
+					if (fabsf(other->ov_world_geom.x - center_wx) < w * 0.65f &&
+						fabsf(other->ov_world_geom.y - center_wy) < h * 0.65f) {
+						collision = true;
+						break;
+					}
+				}
+				if (!collision)
+					break;
+				center_wx += (attempt % 2 == 0) ? (w + 40.0f) : 0.0f;
+				center_wy += (attempt % 2 == 1) ? (h + 40.0f) : 0.0f;
+			}
+
 			c->ov_world_geom = (struct wlr_fbox){
 				.x = center_wx,
 				.y = center_wy,
@@ -139,12 +417,14 @@ void overview_canvas_sync_clients(Monitor *m) {
 				.height = h,
 			};
 			c->ov_world_initialized = true;
+			st->custom_state = true;
+			overview_canvas_configure_client_size(c);
 		}
 	}
 }
 
 void overview_canvas_apply(Monitor *m, bool animate) {
-	if (!m || !m->isoverview)
+	if (!is_canvas_or_overview(m))
 		return;
 
 	struct ov_canvas_state *st = ov_canvas_get(m);
@@ -152,7 +432,8 @@ void overview_canvas_apply(Monitor *m, bool animate) {
 	Client *c;
 
 	wl_list_for_each(c, &server.clients, link) {
-		if (!c || c->mon != m || !c->ov_card_tree || c->iskilling)
+		if (!c || c->mon != m || !c->ov_card_tree || c->iskilling ||
+			!VISIBLEON(c, m))
 			continue;
 		if (!c->ov_world_initialized)
 			continue;
@@ -173,14 +454,18 @@ void overview_canvas_apply(Monitor *m, bool animate) {
 				min_size, (int32_t)roundf(c->ov_world_geom.height * zoom)),
 		};
 
-		if (animate) {
+		if (animate && !st->camera_animating) {
 			resize(c, geo,
 				   (ResizeOpts){.interact = 1, .skip_ov_enter_anim = true});
 		} else {
 			c->geom = c->pending = c->current = c->animainit_geom =
 				c->animation.initial = c->animation.current = geo;
 			c->animation.running = false;
+			c->animation.tagining = false;
+			c->animation.tagouting = false;
+			c->is_pending_open_animation = false;
 			c->need_output_flush = false;
+			c->dirty = false;
 			wlr_scene_node_set_position(&c->scene->node, geo.x, geo.y);
 			client_apply_clip(c, 1.0f);
 		}
@@ -189,8 +474,28 @@ void overview_canvas_apply(Monitor *m, bool animate) {
 	request_fresh_all_monitors();
 }
 
+/* Dedicated Infinite Canvas Layout Mode ("canvas") */
+void canvas_layout(Monitor *m) {
+	if (!m)
+		return;
+	overview_canvas_sync_clients(m);
+	overview_canvas_apply(m, false);
+}
+
+bool canvas_predict(Monitor *m, Client *c, struct wlr_box *out_geo) {
+	if (!m || !out_geo)
+		return false;
+	*out_geo = (struct wlr_box){
+		.x = m->w.x + (int32_t)(m->w.width * 0.22f),
+		.y = m->w.y + (int32_t)(m->w.height * 0.2f),
+		.width = (int32_t)(m->w.width * 0.55f),
+		.height = (int32_t)(m->w.height * 0.6f),
+	};
+	return true;
+}
+
 Client *overview_client_at(Monitor *m, double lx, double ly) {
-	if (!m || !m->isoverview)
+	if (!is_canvas_or_overview(m))
 		return NULL;
 
 	Client *c;
@@ -212,7 +517,7 @@ Client *overview_client_at(Monitor *m, double lx, double ly) {
 }
 
 void overview_canvas_zoom_at(Monitor *m, double lx, double ly, double delta) {
-	if (!m || !m->isoverview || delta == 0.0)
+	if (!is_canvas_or_overview(m) || delta == 0.0)
 		return;
 
 	struct ov_canvas_state *st = ov_canvas_get(m);
@@ -221,32 +526,78 @@ void overview_canvas_zoom_at(Monitor *m, double lx, double ly, double delta) {
 		st->custom_state = true;
 	}
 
-	float old_zoom = st->cam_zoom;
-	float factor = delta < 0.0 ? 1.12f : (1.0f / 1.12f);
-	float new_zoom = fmaxf(0.15f, fminf(3.0f, old_zoom * factor));
-	if (fabsf(new_zoom - old_zoom) < 0.0001f)
+	float cur_zoom = st->cam_zoom > 0.05f ? st->cam_zoom : 1.0f;
+	float base_target =
+		st->target_cam_zoom > 0.05f ? st->target_cam_zoom : cur_zoom;
+	float factor = delta < 0.0 ? 1.15f : (1.0f / 1.15f);
+	float new_zoom = fmaxf(0.15f, fminf(3.0f, base_target * factor));
+	if (fabsf(new_zoom - base_target) < 0.0001f)
 		return;
 
 	float rel_x = (float)lx - (float)m->m.x;
 	float rel_y = (float)ly - (float)m->m.y;
 
 	/* World point currently under the cursor (relative to monitor origin) */
-	float wx = st->cam_x + rel_x / old_zoom;
-	float wy = st->cam_y + rel_y / old_zoom;
+	float wx = st->cam_x + rel_x / cur_zoom;
+	float wy = st->cam_y + rel_y / cur_zoom;
 
-	/* Keep (wx, wy) stationary under the cursor after zooming */
-	st->cam_zoom = new_zoom;
-	st->cam_x = wx - rel_x / new_zoom;
-	st->cam_y = wy - rel_y / new_zoom;
+	st->anchor_wx = wx;
+	st->anchor_wy = wy;
+	st->anchor_rx = rel_x;
+	st->anchor_ry = rel_y;
+	st->zoom_use_anchor = true;
 
-	overview_canvas_apply(m, false);
+	st->target_cam_zoom = new_zoom;
+	st->target_cam_x = wx - rel_x / new_zoom;
+	st->target_cam_y = wy - rel_y / new_zoom;
+
+	if (!st->zoom_timer && server.event_loop)
+		st->zoom_timer =
+			wl_event_loop_add_timer(server.event_loop, ov_zoom_timer_cb, st);
+
+	if (st->zoom_timer) {
+		ov_zoom_timer_cb(st);
+	} else {
+		st->cam_zoom = st->target_cam_zoom;
+		st->cam_x = st->target_cam_x;
+		st->cam_y = st->target_cam_y;
+		overview_canvas_apply(m, false);
+	}
 }
 
 bool overview_canvas_is_dragging(void) { return ov_drag.mode != OV_DRAG_NONE; }
 
+bool overview_canvas_begin_move_resize(Client *c, uint32_t mode, double lx,
+									   double ly) {
+	if (!c || !c->mon || !is_canvas_layout(c->mon) || c->mon->isoverview)
+		return false;
+
+	Monitor *m = c->mon;
+	overview_canvas_sync_clients(m);
+	struct ov_canvas_state *st = ov_canvas_get(m);
+	st->custom_state = true;
+
+	ov_drag.mon = m;
+	ov_drag.client = c;
+	ov_drag.button = (mode == CurResize) ? BTN_RIGHT : BTN_LEFT;
+	ov_drag.start_x = ov_drag.last_x = lx;
+	ov_drag.start_y = ov_drag.last_y = ly;
+	ov_drag.last_configure_ms = 0;
+	ov_drag.moved = true;
+	ov_drag.mode =
+		(mode == CurResize) ? OV_DRAG_RESIZE_CLIENT : OV_DRAG_MOVE_CLIENT;
+
+	wlr_scene_node_raise_to_top(&c->scene->node);
+	client_focus(c, 1);
+
+	wlr_cursor_set_xcursor(server.cursor, server.cursor_manager,
+						   (mode == CurResize) ? "se-resize" : "grab");
+	return true;
+}
+
 bool overview_canvas_button_press(Monitor *m, uint32_t button, double lx,
 								  double ly) {
-	if (!m || !m->isoverview)
+	if (!is_canvas_or_overview(m))
 		return false;
 
 	if (button != BTN_LEFT && button != BTN_RIGHT && button != BTN_MIDDLE)
@@ -259,29 +610,44 @@ bool overview_canvas_button_press(Monitor *m, uint32_t button, double lx,
 	ov_drag.client = c;
 	ov_drag.start_x = ov_drag.last_x = lx;
 	ov_drag.start_y = ov_drag.last_y = ly;
+	ov_drag.last_configure_ms = 0;
 	ov_drag.moved = false;
+
+	if (button == BTN_MIDDLE) {
+		/* Strictly Middle Mouse Button pans the overview / canvas */
+		ov_canvas_stop_zoom_timer(ov_canvas_get(m));
+		ov_drag.mode = OV_DRAG_PAN_CANVAS;
+		return true;
+	}
+
+	if (!m->isoverview)
+		return false;
 
 	if (button == BTN_LEFT && c) {
 		ov_drag.mode = OV_DRAG_MOVE_CLIENT;
 		wlr_scene_node_raise_to_top(&c->scene->node);
 		client_focus(c, 1);
-	} else if (button == BTN_RIGHT && c) {
-		ov_drag.mode = OV_DRAG_RESIZE_CLIENT;
-		wlr_scene_node_raise_to_top(&c->scene->node);
-		client_focus(c, 1);
-	} else {
-		ov_drag.mode = OV_DRAG_PAN_CANVAS;
+		return true;
 	}
 
+	if (button == BTN_RIGHT && c) {
+		/* Overview does not resize cards; right-click closes on release */
+		ov_drag.mode = OV_DRAG_CLICK_ONLY;
+		return true;
+	}
+
+	ov_drag.mode = OV_DRAG_CLICK_ONLY;
 	return true;
 }
 
 bool overview_canvas_motion(Monitor *m, double lx, double ly) {
-	if (!m || !m->isoverview)
+	if (!is_canvas_or_overview(m))
 		return false;
 
+	struct ov_canvas_state *st = ov_canvas_get(m);
+
 	if (ov_drag.mode == OV_DRAG_NONE) {
-		if (config.sloppyfocus) {
+		if (!st->camera_animating && config.sloppyfocus) {
 			Client *hc = overview_client_at(m, lx, ly);
 			if (hc && m->sel != hc)
 				client_focus(hc, 0);
@@ -289,7 +655,14 @@ bool overview_canvas_motion(Monitor *m, double lx, double ly) {
 		return false;
 	}
 
-	struct ov_canvas_state *st = ov_canvas_get(m);
+	if (ov_drag.mode == OV_DRAG_CLICK_ONLY) {
+		double tdx = lx - ov_drag.start_x;
+		double tdy = ly - ov_drag.start_y;
+		if (tdx * tdx + tdy * tdy >= 25.0)
+			ov_drag.moved = true;
+		return true;
+	}
+
 	if (!ov_drag.moved) {
 		double tdx = lx - ov_drag.start_x;
 		double tdy = ly - ov_drag.start_y;
@@ -327,9 +700,18 @@ bool overview_canvas_motion(Monitor *m, double lx, double ly) {
 		ov_drag.client->ov_world_geom.height = fmaxf(
 			60.0f, ov_drag.client->ov_world_geom.height + (float)(dy / zoom));
 		overview_canvas_apply(m, false);
+
+		uint32_t now = get_now_in_ms();
+		if (ov_drag.last_configure_ms == 0 ||
+			now - ov_drag.last_configure_ms >= drag_refresh_interval_ms(m)) {
+			overview_canvas_configure_client_size(ov_drag.client);
+			ov_drag.last_configure_ms = now;
+		}
 	} else if (ov_drag.mode == OV_DRAG_PAN_CANVAS) {
 		st->cam_x -= (float)(dx / zoom);
 		st->cam_y -= (float)(dy / zoom);
+		st->target_cam_x = st->cam_x;
+		st->target_cam_y = st->cam_y;
 		overview_canvas_apply(m, false);
 	}
 
@@ -353,17 +735,29 @@ bool overview_canvas_button_release(Monitor *m, uint32_t button, double lx,
 	if (!server.cursor_hidden)
 		wlr_cursor_set_xcursor(server.cursor, server.cursor_manager, "default");
 
-	if (!moved && drag_mon && drag_mon->isoverview) {
-		if (button == BTN_LEFT && c) {
+	if (mode == OV_DRAG_RESIZE_CLIENT && c) {
+		overview_canvas_configure_client_size(c);
+	}
+
+	if (!moved && drag_mon) {
+		if (drag_mon->isoverview && button == BTN_LEFT && c) {
 			toggle_overview(&(Arg){.tc = c});
-		} else if (button == BTN_RIGHT && c) {
+		} else if (drag_mon->isoverview && button == BTN_RIGHT && c) {
 			pending_kill_client(c);
 		} else if (button == BTN_MIDDLE && mode == OV_DRAG_PAN_CANVAS) {
 			struct ov_canvas_state *st = ov_canvas_get(drag_mon);
-			st->cam_x = 0.0f;
-			st->cam_y = 0.0f;
-			st->cam_zoom = 1.0f;
-			overview_canvas_apply(drag_mon, true);
+			st->zoom_use_anchor = false;
+			st->target_cam_x = 0.0f;
+			st->target_cam_y = 0.0f;
+			st->target_cam_zoom = 1.0f;
+			if (st->zoom_timer) {
+				ov_zoom_timer_cb(st);
+			} else {
+				st->cam_x = 0.0f;
+				st->cam_y = 0.0f;
+				st->cam_zoom = 1.0f;
+				overview_canvas_apply(drag_mon, true);
+			}
 		}
 	}
 
@@ -708,13 +1102,16 @@ void overview_restore(Client *c, const Arg *arg) {
 		overview_canvas_reset(c->mon);
 	c->ov_world_initialized = false;
 
+	struct wlr_box ov_card_box = c->animation.current;
+	if (ov_card_box.width <= 0 || ov_card_box.height <= 0)
+		ov_card_box = c->geom;
+
 	c->isfloating = c->overview_isfloatingbak;
 	c->isfullscreen = c->overview_isfullscreenbak;
 	c->ismaximizescreen = c->overview_ismaximizescreenbak;
 	c->overview_isfloatingbak = 0;
 	c->overview_isfullscreenbak = 0;
 	c->overview_ismaximizescreenbak = 0;
-	c->geom = c->overview_backup_geom;
 	c->bw = c->overview_backup_bw;
 	c->animation.tagining = false;
 	c->is_restoring_from_ov = (arg->ui & c->tags & TAGMASK) == 0 ? true : false;
@@ -726,6 +1123,10 @@ void overview_restore(Client *c, const Arg *arg) {
 		c->overview_scene_surface = NULL;
 		client_update_visibility(c);
 	}
+
+	c->animation.current = ov_card_box;
+	c->animainit_geom = ov_card_box;
+	c->current = ov_card_box;
 
 	if (c->isfloating) {
 		resize(c, c->overview_backup_geom, (ResizeOpts){.interact = 0});

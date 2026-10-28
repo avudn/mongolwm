@@ -8,6 +8,7 @@
 #include "mango/layout/layout.h"
 #include "mango/layout/scroll.h"
 #include "mango/layout/vertical.h"
+#include "mango/overview/overview.h"
 #include "mango/manage/client.h"
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
@@ -1446,6 +1447,7 @@ Layout layouts[] = {
 	{"F", fair, fair_predict, "fair", FAIR},
 	{"VF", vertical_fair, vertical_fair_predict, "vertical_fair",
 	 VERTICAL_FAIR},
+	{"CV", canvas_layout, canvas_predict, "canvas", 99},
 };
 
 bool special_handle_empty_view(Monitor *m, bool from_view) {
@@ -1508,6 +1510,19 @@ void arrange(Monitor *m, bool want_animation, bool from_view) {
 			overview_canvas_apply(m, want_animation);
 		}
 	} else {
+		if (!is_canvas_layout(m)) {
+			Client *cc;
+			wl_list_for_each(cc, &server.clients, link) {
+				if (cc && cc->mon == m && cc->ov_card_tree) {
+					overview_destroy_card(cc);
+					if (cc->overview_scene_surface) {
+						cc->scene_surface = cc->overview_scene_surface;
+						cc->overview_scene_surface = NULL;
+						client_update_visibility(cc);
+					}
+				}
+			}
+		}
 		m->pertag->ltidxs[get_mon_curtag(m)]->arrange(m);
 	}
 

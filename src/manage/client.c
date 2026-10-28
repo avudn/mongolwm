@@ -2496,6 +2496,12 @@ void handle_client_commit(struct wl_listener *listener, void *data) {
 		return;
 	}
 
+	if (c->ov_card_tree) {
+		c->configure_serial = 0;
+		c->dirty = false;
+		return;
+	}
+
 	if (client_is_parked(c))
 		return;
 
@@ -4748,6 +4754,15 @@ void client_get_x11_geometry(Client *c, struct wlr_box *xgeo) {
 		xgeo->y = (int32_t)roundf((c->mon->m.y - oy) * c->xwayland_scale);
 		xgeo->width = width;
 		xgeo->height = height;
+	} else if (c->mon && is_canvas_layout(c->mon) && !c->mon->isoverview &&
+			   c->ov_world_initialized) {
+		xgeo->x = (int32_t)roundf(c->ov_world_geom.x) + (int32_t)c->bw;
+		xgeo->y = (int32_t)roundf(c->ov_world_geom.y) + (int32_t)c->bw;
+		xgeo->width = MANGO_MAX(
+			1, (int32_t)roundf(c->ov_world_geom.width) - 2 * (int32_t)c->bw);
+		xgeo->height = MANGO_MAX(
+			1, (int32_t)roundf(c->ov_world_geom.height) - 2 * (int32_t)c->bw);
+		xwayland_logical_to_x11(xgeo, c->xwayland_scale); 
 	} else {
 		/* Others (non-fullscreen, xwayland_ignore_scale off, unmanaged):
 		 * logical geometry -> physical coordinates, X11 renders 1:1. */

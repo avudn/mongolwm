@@ -1,154 +1,107 @@
 # mongolwm
-mongolwm is a little fork of mangowm which adds outer borders (double borders basically). <br>
-to add a second border, you should add this to your ~/.config/mango/config.conf:
-```
+
+mongolwm is an experimental Wayland compositor forked from [MangoWM](https://github.com/DreamMaoMao/mangowc). It keeps the minimalist, tiling-first feel of its parent and adds something different: an **infinite canvas** where windows aren't boxed into your monitor, you just place them wherever you like and move the camera around.
+
+It's built on `wlroots` and `scenefx`, so you also get rounded corners, blur, shadows and smooth animations.
+
+> Experimental software. Things will change and things will break.
+
+## What makes it different
+
+### Infinite canvas (`setlayout,canvas`)
+
+Windows live on an unbounded 2D plane. They keep their real, unscaled client resolution, and the GPU handles the scaling when you zoom, so nothing gets re-laid-out or resized behind your back.
+
+- **Camera gliding.** Move focus with `focusdir` or `focusstack` and the view smoothly pans to center the window you landed on.
+- **Cursor-centered zoom.** Zoom from 0.15x to 3.0x, with exponential easing at 120Hz, anchored to wherever your mouse is.
+- **Free positioning.** Drag and resize windows anywhere on the canvas.
+
+### Overview mode (`toggleoverview`)
+
+A zoomable bird's-eye view of everything on your canvas. Entering and leaving the overview animates windows from and to their actual positions. You can drag windows around in it to reorganize, click one to jump to it, or right-click to close it.
+
+### Concentric double borders
+
+Inspired by 2bwm. There's an inner border (`border_px`) that reflects window state (focused, unfocused, urgent, scratchpad, global, overlay) and a separate outer border (`outer_border_px`) wrapped around it. It works with rounded corners (`border_radius`) and uses hardware-accelerated clipping.
+
+### Effects (via SceneFX)
+
+Dual-kawase blur, drop shadows, window dimming, opacity fading, and custom cubic-bezier animation curves.
+
+### 15 built-in layouts
+
+`canvas`, `tile`, `scroller`, `dwindle`, `monocle`, `grid`, `deck`, `center_tile`, `right_tile`, `fair`, and the vertical variants: `vertical_scroller`, `vertical_tile`, `vertical_grid`, `vertical_deck`, `vertical_fair`.
+
+## Controls
+
+### Canvas mode
+
+| Action | Binding |
+| --- | --- |
+| Pan the canvas | Middle-click + drag anywhere |
+| Reset camera (1.0x, origin) | Middle-click without dragging |
+| Zoom in / out | `Super` + scroll wheel (zooms at cursor) |
+| Move a window | `Super` + left-click + drag (`moveresize,curmove`) |
+| Resize a window | `Super` + right-click + drag (`moveresize,curresize`) |
+| Focus in a direction and glide | `focusdir,left/right/up/down` |
+| Cycle focus and glide | `focusstack,next` / `focusstack,prev` |
+
+### Overview mode
+
+| Action | Binding |
+| --- | --- |
+| Pan the overview | Middle-click + drag |
+| Reset view / re-grid cards | Middle-click (first click resets the camera, second resets the layout) |
+| Zoom in / out | Scroll wheel (zooms at cursor) |
+| Move a window card | Left-click + drag on a card |
+| Select a window and exit | Left-click on a card (no drag) |
+| Close a window | Right-click on a card |
+
+## Example config
+
+Here's a starting point for `config.conf`:
+
+```ini
+# ==========================================
+# Double Borders
+# ==========================================
+border_px=6
 outer_border_px=2
-outer_border_color=0xffffffff
-```
-and thats it. lol
+border_radius=6
+border_color=0x3b4261ff
+focus_color=0x7aa2f7ff
+outer_border_color=0x16161eff
+urgent_color=0xf7768eff
 
-<div align="center">
-  <img src="assets/mango.svg" alt="Mango Logo" width="120"/>
+# ==========================================
+# Layout & Overview Keybindings
+# ==========================================
+bind=SUPER,c,setlayout,canvas
+bind=SUPER,t,setlayout,tile
+bind=SUPER,s,setlayout,scroller
+bind=SUPER,d,setlayout,dwindle
+bind=SUPER,Tab,toggleoverview
 
-  <h1>Mango Wayland Compositor</h1>
+# ==========================================
+# Directional Navigation (Camera Gliding)
+# ==========================================
+bind=SUPER,Left,focusdir,left
+bind=SUPER,Right,focusdir,right
+bind=SUPER,Up,focusdir,up
+bind=SUPER,Down,focusdir,down
 
-  <p>A fast, feature-rich Wayland compositor built on <a href="https://codeberg.org/dwl/dwl">dwl</a></p>
+# ==========================================
+# Window Cycling & Mouse Bindings
+# ==========================================
+bind=SUPER,j,focusstack,next
+bind=SUPER,k,focusstack,prev
 
-<a href="https://github.com/mangowm/mango/stargazers"><img src="https://img.shields.io/github/stars/mangowm/mango?style=flat&color=orange" alt="Stars"/></a>
-<a href="https://github.com/mangowm/mango/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat" alt="License"/></a>
-<a href="https://repology.org/project/mangowm/versions"><img src="https://repology.org/badge/tiny-repos/mangowm.svg" alt="Packaged in"/></a>
-<a href="https://discord.gg/CPjbDxesh5"><img src="https://img.shields.io/discord/1430889676264177687?style=flat&logo=discord&label=discord" alt="Discord"/></a>
-
-</div>
-
----
-
-https://github.com/user-attachments/assets/bb83004a-0563-4b48-ad89-6461a9b78b1f
-
-https://github.com/user-attachments/assets/be85e13f-7798-456d-957e-f8931687392e
-
-
-
-> See all layouts in action at [mangowm.github.io](https://mangowm.github.io/)
-
-## Why Mango?
-
-Mango starts where dwl ends. It keeps the lightweight, fast-build philosophy while adding the features that make a compositor actually usable day-to-day — without the bloat.
-
-- **Lightweight & fast** — as lean as dwl, no functionality compromised
-- **Excellent xwayland support** — run X11 apps without friction(Supports scale without blurring)
-- **Tags, not workspaces** — each tag maintains its own independent window layout
-- **Smooth animations** — window open/move/close, tag transitions, layer surfaces
-- **Flexible layouts** — scroller, master-stack, monocle, dwindle, grid, and more
-- **Rich window states** — swallow, minimize, maximize, global, overlay, fakefullscreen
-- **Window effects** — blur, shadow, corner radius, opacity (via scenefx)
-- **Excellent input method support** — text-input v2/v3
-- **Sway-like scratchpad** — named scratchpad support included
-- **Hycov-style overview** — see all windows at a glance
-- **IPC** — send/receive messages from external programs
-- **Hot-reload config** — no restart needed for keybinding changes
-- **Zero flickering** — every frame is correct
-
-## Vision
-
-**Stability first.** After months of testing, Mango is solid enough for daily use. Breaking changes will be minimal.
-
-**Practicality over novelty.** Features get added when they genuinely improve daily workflows — not for the sake of completeness.
-
-**Focused scope.** Niche requests are evaluated by community interest. Significant upvotes move things forward.
-
-## AI Policy
-
-- **Pull requests:** AI may be used to assist in preparing a pull request (PR), but direct AI-generated PRs are not accepted. Contributors must clearly understand what the code does, whether the implementation is reasonable and rigorous, whether it wastes resources, and whether the implementation is sufficiently convergent rather than scattered.
-
-- **Bug reports:** Using AI to report bugs is acceptable. AI-provided information may serve as reference material, which is preferable to reports that provide no reference information.
-
-## Installation
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/mangowm.svg)](https://repology.org/project/mangowm/versions)
-
-### Arch Linux
-
-```bash
-yay -S mangowm-git
-```
-#### use my config
-- install dependencies
-```
-yay -S rofi foot xdg-desktop-portal-wlr swaybg waybar wl-clip-persist cliphist wl-clipboard wlsunset xfce-polkit swaync pamixer wlr-dpms sway-audio-idle-inhibit-git swayidle dimland-git brightnessctl swayosd wlr-randr grim slurp satty swaylock-effects-git wlogout sox
-```
-- clone config
-```
-git clone https://github.com/DreamMaoMao/mango-config.git ~/.config/mango
+mousebind=SUPER,btn_left,moveresize,curmove
+mousebind=SUPER,btn_right,moveresize,curresize
 ```
 
-### Other distributions
+Colors are `0xRRGGBBAA`. The border colors above are a Tokyo Night-ish palette, so change them to whatever you like.
 
-See the [Installation Guide](https://mangowm.github.io/docs/installation) for Fedora, Gentoo, Guix, NixOS, openSUSE, PikaOS, AerynOS, and building from source.
+## Credits
 
-## Documentation
-
-- **[mangowm.github.io](https://mangowm.github.io/)** — website docs with configuration reference, keybindings, layouts, IPC, and more
-- **[GitHub Wiki](https://github.com/mangowm/mango/wiki/)** — community-maintained wiki
-
-## Community
-
-Join us on **[Discord](https://discord.gg/CPjbDxesh5)**
-
-## Acknowledgements
-
-- [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) — Wayland protocol implementation
-- [dwl](https://codeberg.org/dwl/dwl) — the foundation Mango builds on
-- [scenefx](https://github.com/wlrfx/scenefx) — window effects library
-- [owl](https://github.com/dqrk0jeste/owl) — animation groundwork
-- [sway](https://github.com/swaywm/sway) — protocol reference
-
-## Sponsor
-
-If Mango makes your desktop better, consider supporting its development.
-
-Thanks to everyone who has sponsored this project:
-
-<table>
-  <tr>
-    <!-- add new sponsors here: copy the <td>...</td> block below -->
-    <td align="center">
-      <a href="https://github.com/dl09r">
-        <img src="https://unavatar.io/github/dl09r" width="48" style="border-radius:50%"/><br/>
-        <sub>dl09r</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/tonybanters">
-        <img src="https://unavatar.io/github/tonybanters" width="48" style="border-radius:50%"/><br/>
-        <sub>tonybanters</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/vinthara">
-        <img src="https://unavatar.io/github/vinthara" width="48" style="border-radius:50%"/><br/>
-        <sub>vinthara</sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/stepbrobd">
-        <img src="https://unavatar.io/github/stepbrobd" width="48" style="border-radius:50%"/><br/>
-        <sub>stepbrobd</sub>
-      </a>
-    </td>
-  </tr>
-</table>
-
-Crypto donations accepted:
-
-<table>
-  <tr>
-    <td valign="middle">
-      <strong>Network:</strong> BEP20 (BSC)<br/>
-      <strong>Address:</strong> <code>0xf9cda472f2556671d2504afc4c35340ec5615da1</code>
-    </td>
-    <td valign="middle">
-      <img width="120" alt="sponsor QR" src="assets/crypto_sponserme_qrcode.png" />
-    </td>
-  </tr>
-</table>
+mongolwm is a fork of MangoWM and stands on the work of the `wlroots` and `scenefx` projects. The double-border style comes from 2bwm.

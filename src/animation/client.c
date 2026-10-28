@@ -136,11 +136,13 @@ int32_t is_special_animation_rule(Client *c) {
 }
 
 void set_overview_enter_animation(Client *c) {
-	if (client_gesture_driven(c)) {
-		struct wlr_box start = c->overview_backup_geom;
-		if (start.width <= 0 || start.height <= 0)
-			start = c->animation.current;
+	struct wlr_box start = c->overview_backup_geom;
+	if (start.width <= 0 || start.height <= 0)
+		start = c->animation.current;
+	if (start.width > 0 && start.height > 0) {
 		c->animainit_geom = start;
+		c->animation.initial = start;
+		c->animation.current = start;
 		return;
 	}
 
@@ -1585,7 +1587,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 							   : &c->mon->w;
 	struct wlr_box clip;
 
-	if ((c->mon && c->mon->isoverview) ||
+	if ((c->mon && (c->mon->isoverview || is_canvas_layout(c->mon))) ||
 		(is_scroller_layout(c->mon) &&
 		 (!c->isfloating || c == server.grab_client))) {
 		c->geom = geo;
@@ -1653,7 +1655,7 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 		c->fake_no_border = false;
 	}
 
-	if (!c->mon->isoverview)
+	if (!c->mon->isoverview && !is_canvas_layout(c->mon))
 		c->configure_serial =
 			client_set_size(c, c->geom.width - 2 * c->bw,
 							c->geom.height - 2 * c->bw, opts.force_configure);
@@ -1708,16 +1710,10 @@ void resize(Client *c, struct wlr_box geo, ResizeOpts opts) {
 
 	if (!opts.skip_ov_enter_anim && c->mon->isoverview &&
 		c->animation.overining && !c->animation.overview_enter_anim_set) {
-		if (client_gesture_driven(c)) {
-			set_overview_enter_animation(c);
-			c->animation.overining = false;
+		c->animation.overining = false;
+		if (c->animation.action == OVERVIEW) {
 			c->animation.overview_enter_anim_set = true;
-		} else {
-			c->animation.overining = false;
-			if (c != c->mon->sel && c->animation.action == OVERVIEW) {
-				c->animation.overview_enter_anim_set = true;
-				set_overview_enter_animation(c);
-			}
+			set_overview_enter_animation(c);
 		}
 	}
 

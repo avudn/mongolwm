@@ -54,6 +54,6 @@ enum {
 	VERTICAL_FAIR,
 };
 
-extern Layout layouts[14];
+extern Layout layouts[15];
 
 #endif

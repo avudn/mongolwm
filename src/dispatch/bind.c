@@ -248,6 +248,12 @@ int32_t focus_direction(const Arg *arg) {
 	if (!server.selected_monitor)
 		return 0;
 
+	if (!server.selected_monitor->isoverview &&
+		is_canvas_layout(server.selected_monitor)) {
+		canvas_focus_dir(server.selected_monitor, arg->i);
+		return 0;
+	}
+
 	Client *sel = server.selected_monitor->sel;
 	if (is_monocle_layout(server.selected_monitor) && sel && !sel->isfloating &&
 		(arg->i == LEFT || arg->i == RIGHT)) {
@@ -261,6 +267,7 @@ int32_t focus_direction(const Arg *arg) {
 
 	if (!server.selected_monitor->isoverview)
 		c = get_focused_stack_client(c, arg->tc);
+
 	if (c) {
 		client_focus(c, 1);
 		if (config.warpcursor)
@@ -287,6 +294,11 @@ int32_t focus_window_or_workspace(const Arg *arg) {
 
 	if (server.selected_monitor->isoverview)
 		return 0;
+
+	if (is_canvas_layout(server.selected_monitor)) {
+		canvas_focus_dir(server.selected_monitor, arg->i);
+		return 0;
+	}
 
 	Client *c = NULL;
 
@@ -525,6 +537,12 @@ int32_t focus_stack(const Arg *arg) {
 	if (!tc)
 		return 0;
 
+	if (server.selected_monitor && !server.selected_monitor->isoverview &&
+		is_canvas_layout(server.selected_monitor)) {
+		canvas_focus_client(server.selected_monitor, tc, true);
+		return 0;
+	}
+
 	client_focus(tc, 1);
 	if (config.warpcursor)
 		pointer_warp_to_client(tc);
@@ -746,6 +764,17 @@ int32_t move_resize(const Arg *arg) {
 
 	if (server.cursor_mode != CurNormal && server.cursor_mode != CurPressed)
 		return 0;
+
+	if (server.selected_monitor && !server.selected_monitor->isoverview &&
+		is_canvas_layout(server.selected_monitor)) {
+		c = overview_client_at(server.selected_monitor, server.cursor->x,
+							   server.cursor->y);
+		if (c) {
+			overview_canvas_begin_move_resize(c, arg->ui, server.cursor->x,
+											  server.cursor->y);
+			return 0;
+		}
+	}
 
 	node_at_point(server.cursor->x, server.cursor->y, NULL, &c, NULL, &bar,
 				  NULL, NULL);
